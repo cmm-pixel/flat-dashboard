@@ -41,12 +41,6 @@ st.set_page_config(page_title="Flat Allotment & Payment Dashboard", layout="wide
 st.title("Flat Allotment & Payment Dashboard")
 st.caption("Search flat details and cleared payments instantly")
 
-# ---------- FILE CHECK ----------
-for f in [ALLOTMENT_FILE, PAYMENT_FILE]:
-    if not os.path.exists(f):
-        st.error(f"Missing file: {f}")
-        st.stop()
-
 # ---------- HELPERS ----------
 def clean_dates(df):
     for c in df.columns:
@@ -60,16 +54,16 @@ def clean_aadhar(s):
 def clean_email(s):
     return s.astype(str).str.strip()
 
-def copy_button(text):
-    safe = str(text).replace("`", "").replace("$", "")
+def copy_button(value):
+    safe = str(value).replace("`", "").replace("$", "")
     components.html(
         f"""
         <button onclick="navigator.clipboard.writeText(`{safe}`)"
-        style="padding:4px 10px;border:1px solid #ccc;border-radius:6px;cursor:pointer;">
+        style="padding:3px 8px;border:1px solid #ccc;border-radius:5px;cursor:pointer;">
         Copy
         </button>
         """,
-        height=35
+        height=32
     )
 
 # ---------- LOAD PAYMENT ----------
@@ -126,12 +120,12 @@ if search:
     # ---------- ALLOTMENT DETAILS ----------
     st.subheader("Allotment Details")
 
-    for k, v in row.items():
+    for field, value in row.items():
         c1, c2, c3 = st.columns([2, 4, 1])
-        c1.write(k)
-        c2.write(str(v))
+        c1.write(field)
+        c2.write(str(value))
         with c3:
-            copy_button(v)
+            copy_button(value)
 
     # ---------- PAYMENT DETAILS ----------
     st.subheader("Payment Details (Cleared)")
@@ -150,7 +144,7 @@ if search:
         errors="ignore"
     )
 
-    # sort by any date column
+    # sort by date
     date_cols = [c for c in payment_display.columns if "date" in c.lower()]
     if date_cols:
         dc = date_cols[0]
@@ -161,11 +155,16 @@ if search:
     rest = [c for c in payment_display.columns if c not in ordered]
     payment_display = payment_display[ordered + rest].reset_index(drop=True)
 
+    # ---------- PAYMENT HEADERS ----------
+    header_cols = st.columns(len(payment_display.columns) + 1)
+    for i, col in enumerate(payment_display.columns):
+        header_cols[i].markdown(f"**{col}**")
+    header_cols[-1].markdown("**Copy**")
+
+    # ---------- PAYMENT ROWS ----------
     for _, r in payment_display.iterrows():
-        cols = st.columns(len(payment_display.columns) + 1)
-        row_text = []
+        row_cols = st.columns(len(payment_display.columns) + 1)
         for i, col in enumerate(payment_display.columns):
-            cols[i].write(str(r[col]))
-            row_text.append(f"{col}: {r[col]}")
-        with cols[-1]:
-            copy_button("\n".join(row_text))
+            row_cols[i].write(str(r[col]))
+        with row_cols[-1]:
+            copy_button(r[col])
