@@ -15,7 +15,6 @@ STATUS_COLUMN = "Status"
 STATUS_VALUE  = "Cleared"
 
 AADHAR_COLUMN = "Aadhar"
-
 PAYMENT_SHEET = "OLD Booking Tracker"
 
 BUILDINGS = [
@@ -24,12 +23,7 @@ BUILDINGS = [
     "TAPI A"
 ]
 
-HIDE_PAYMENT_COLUMNS = [
-    "Sr. No.",
-    "GKC",
-    "Wing",
-    "Flat No."
-]
+HIDE_PAYMENT_COLUMNS = ["Sr. No.", "GKC", "Wing", "Flat No."]
 
 PAYMENT_COLUMN_ORDER = [
     "Name of Applicant",
@@ -55,43 +49,36 @@ for f in [ALLOTMENT_FILE, PAYMENT_FILE]:
 
 # ---------- HELPERS ----------
 def clean_dates(df):
-    for col in df.columns:
-        if "date" in col.lower():
-            df[col] = pd.to_datetime(df[col], errors="coerce").dt.strftime("%d/%m/%Y")
+    for c in df.columns:
+        if "date" in c.lower():
+            df[c] = pd.to_datetime(df[c], errors="coerce").dt.strftime("%d/%m/%Y")
     return df
 
-def clean_aadhar(series):
-    return series.astype(str).str.replace(" ", "", regex=False).str.replace("-", "", regex=False)
+def clean_aadhar(s):
+    return s.astype(str).str.replace(" ", "", regex=False).str.replace("-", "", regex=False)
 
-def clean_email(series):
-    return series.astype(str).str.strip()
+def clean_email(s):
+    return s.astype(str).str.strip()
 
 def copy_button(text):
-    safe_text = text.replace("`", "").replace("$", "")
+    safe = str(text).replace("`", "").replace("$", "")
     components.html(
         f"""
-        <button onclick="navigator.clipboard.writeText(`{safe_text}`)"
-        style="
-            padding:6px 12px;
-            border-radius:6px;
-            border:1px solid #ccc;
-            cursor:pointer;
-            background-color:#f5f5f5;
-            margin-top:4px;">
-            Copy
+        <button onclick="navigator.clipboard.writeText(`{safe}`)"
+        style="padding:4px 10px;border:1px solid #ccc;border-radius:6px;cursor:pointer;">
+        Copy
         </button>
         """,
-        height=40
+        height=35
     )
 
-# ---------- LOAD PAYMENT DATA ----------
+# ---------- LOAD PAYMENT ----------
 @st.cache_data
 def load_payment():
     df = pd.read_excel(PAYMENT_FILE, sheet_name=PAYMENT_SHEET)
     df[GKC_COLUMN] = df[GKC_COLUMN].astype(str).str.strip()
     df[STATUS_COLUMN] = df[STATUS_COLUMN].astype(str).str.strip()
-    df = clean_dates(df)
-    return df
+    return clean_dates(df)
 
 payment_df = load_payment()
 
@@ -112,64 +99,73 @@ if search:
 
     allot_df = pd.read_excel(ALLOTMENT_FILE, sheet_name=building)
     allot_df[FLAT_COLUMN] = allot_df[FLAT_COLUMN].astype(str).str.strip()
-    allot_df[GKC_COLUMN]  = allot_df[GKC_COLUMN].astype(str).str.strip()
+    allot_df[GKC_COLUMN] = allot_df[GKC_COLUMN].astype(str).str.strip()
     allot_df = clean_dates(allot_df)
 
     if AADHAR_COLUMN in allot_df.columns:
         allot_df[AADHAR_COLUMN] = clean_aadhar(allot_df[AADHAR_COLUMN])
 
-    for ec in ["Email1", "Email2", "Email 1", "Email 2"]:
-        if ec in allot_df.columns:
-            allot_df[ec] = clean_email(allot_df[ec])
+    for e in ["Email1", "Email2", "Email 1", "Email 2"]:
+        if e in allot_df.columns:
+            allot_df[e] = clean_email(allot_df[e])
 
     result = allot_df[allot_df[FLAT_COLUMN].str.upper() == flat_no.upper()]
+
     if result.empty:
-        st.error("No flat data found")
+        st.error("Invalid flat number")
+        st.stop()
+
+    row = result.iloc[0]
+
+    if pd.isna(row[GKC_COLUMN]) or str(row[GKC_COLUMN]).strip() == "":
+        st.warning("No booking available for this flat")
         st.stop()
 
     st.success("Flat details found")
 
-    # ---------- ALLOTMENT ----------
+    # ---------- ALLOTMENT DETAILS ----------
     st.subheader("Allotment Details")
-    row = result.iloc[0]
-    allotment_view = pd.DataFrame({"Value": row.astype(str)})
-    st.dataframe(allotment_view, use_container_width=True)
 
-    # ---------- PAYMENT ----------
+    for k, v in row.items():
+        c1, c2, c3 = st.columns([2, 4, 1])
+        c1.write(k)
+        c2.write(str(v))
+        with c3:
+            copy_button(v)
+
+    # ---------- PAYMENT DETAILS ----------
     st.subheader("Payment Details (Cleared)")
-    gkc = row[GKC_COLUMN]
 
     payment_result = payment_df[
-        (payment_df[GKC_COLUMN] == gkc) &
+        (payment_df[GKC_COLUMN] == row[GKC_COLUMN]) &
         (payment_df[STATUS_COLUMN].str.contains(STATUS_VALUE, case=False, na=False))
     ]
+
+    if payment_result.empty:
+        st.info("No cleared payments found")
+        st.stop()
 
     payment_display = payment_result.drop(
         columns=[c for c in HIDE_PAYMENT_COLUMNS if c in payment_result.columns],
         errors="ignore"
     )
 
-    # Sort by any date column
+    # sort by any date column
     date_cols = [c for c in payment_display.columns if "date" in c.lower()]
     if date_cols:
         dc = date_cols[0]
-        payment_display["_sort_date"] = pd.to_datetime(
-            payment_display[dc], format="%d/%m/%Y", errors="coerce"
-        )
-        payment_display = payment_display.sort_values("_sort_date").drop(columns="_sort_date")
+        payment_display["_d"] = pd.to_datetime(payment_display[dc], errors="coerce")
+        payment_display = payment_display.sort_values("_d").drop(columns="_d")
 
     ordered = [c for c in PAYMENT_COLUMN_ORDER if c in payment_display.columns]
     rest = [c for c in payment_display.columns if c not in ordered]
     payment_display = payment_display[ordered + rest].reset_index(drop=True)
 
-    # ---------- ROW VIEW WITH COPY BUTTON ----------
     for _, r in payment_display.iterrows():
         cols = st.columns(len(payment_display.columns) + 1)
-
         row_text = []
-        for idx, col in enumerate(payment_display.columns):
-            cols[idx].write(str(r[col]))
+        for i, col in enumerate(payment_display.columns):
+            cols[i].write(str(r[col]))
             row_text.append(f"{col}: {r[col]}")
-
         with cols[-1]:
             copy_button("\n".join(row_text))
