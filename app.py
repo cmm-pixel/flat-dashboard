@@ -3,6 +3,35 @@ import pandas as pd
 import os
 import streamlit.components.v1 as components
 
+# ================= LOGIN =================
+def login_page():
+    st.title("Login")
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if (
+            username == st.secrets["auth"]["username"]
+            and password == st.secrets["auth"]["password"]
+        ):
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+def logout_button():
+    if st.button("Logout"):
+        st.session_state["authenticated"] = False
+        st.rerun()
+
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    login_page()
+    st.stop()
+
 # ================= CONFIG =================
 BASE_PATH = "FORM DETAILS"
 
@@ -15,7 +44,7 @@ STATUS_COLUMN = "Status"
 STATUS_VALUE  = "Cleared"
 
 AADHAR_COLUMN = "Aadhar"
-PAYMENT_SHEET = "OLD Booking Tracker"
+PREFERRED_PAYMENT_SHEET = "OLD Booking Tracker"
 
 BUILDINGS = [
     "AMAZON A", "AMAZON B",
@@ -35,13 +64,24 @@ PAYMENT_COLUMN_ORDER = [
     "Status",
     "Unit No"
 ]
-# ==========================================
 
+# ================= PAGE =================
 st.set_page_config(page_title="Flat Allotment & Payment Dashboard", layout="wide")
-st.title("Flat Allotment & Payment Dashboard")
-st.caption("Search flat details and cleared payments instantly")
 
-# ---------- HELPERS ----------
+top_left, top_right = st.columns([6, 1])
+with top_left:
+    st.title("Flat Allotment & Payment Dashboard")
+    st.caption("Search flat details and cleared payments instantly")
+with top_right:
+    logout_button()
+
+# ================= FILE CHECK =================
+for f in [ALLOTMENT_FILE, PAYMENT_FILE]:
+    if not os.path.exists(f):
+        st.error(f"Missing file: {f}")
+        st.stop()
+
+# ================= HELPERS =================
 def clean_dates(df):
     for c in df.columns:
         if "date" in c.lower():
@@ -66,17 +106,21 @@ def copy_button(value):
         height=32
     )
 
-# ---------- LOAD PAYMENT ----------
+# ================= LOAD PAYMENT (SAFE) =================
 @st.cache_data
 def load_payment():
-    df = pd.read_excel(PAYMENT_FILE, sheet_name=PAYMENT_SHEET)
+    xl = pd.ExcelFile(PAYMENT_FILE)
+    sheet = PREFERRED_PAYMENT_SHEET if PREFERRED_PAYMENT_SHEET in xl.sheet_names else xl.sheet_names[0]
+    df = xl.parse(sheet)
+
     df[GKC_COLUMN] = df[GKC_COLUMN].astype(str).str.strip()
     df[STATUS_COLUMN] = df[STATUS_COLUMN].astype(str).str.strip()
+
     return clean_dates(df)
 
 payment_df = load_payment()
 
-# ---------- UI ----------
+# ================= SEARCH UI =================
 c1, c2, c3 = st.columns([2, 2, 1])
 with c1:
     building = st.selectbox("Building", BUILDINGS)
@@ -85,7 +129,7 @@ with c2:
 with c3:
     search = st.button("Search", use_container_width=True)
 
-# ---------- SEARCH ----------
+# ================= SEARCH LOGIC =================
 if search:
     if not flat_no.strip():
         st.error("Please enter Flat Number")
@@ -93,7 +137,7 @@ if search:
 
     allot_df = pd.read_excel(ALLOTMENT_FILE, sheet_name=building)
     allot_df[FLAT_COLUMN] = allot_df[FLAT_COLUMN].astype(str).str.strip()
-    allot_df[GKC_COLUMN] = allot_df[GKC_COLUMN].astype(str).str.strip()
+    allot_df[GKC_COLUMN]  = allot_df[GKC_COLUMN].astype(str).str.strip()
     allot_df = clean_dates(allot_df)
 
     if AADHAR_COLUMN in allot_df.columns:
@@ -117,7 +161,7 @@ if search:
 
     st.success("Flat details found")
 
-    # ---------- ALLOTMENT DETAILS ----------
+    # ================= ALLOTMENT DETAILS =================
     st.subheader("Allotment Details")
 
     for field, value in row.items():
@@ -127,7 +171,7 @@ if search:
         with c3:
             copy_button(value)
 
-    # ---------- PAYMENT DETAILS ----------
+    # ================= PAYMENT DETAILS =================
     st.subheader("Payment Details (Cleared)")
 
     payment_result = payment_df[
@@ -144,7 +188,6 @@ if search:
         errors="ignore"
     )
 
-    # sort by date
     date_cols = [c for c in payment_display.columns if "date" in c.lower()]
     if date_cols:
         dc = date_cols[0]
@@ -155,16 +198,14 @@ if search:
     rest = [c for c in payment_display.columns if c not in ordered]
     payment_display = payment_display[ordered + rest].reset_index(drop=True)
 
-    # ---------- PAYMENT HEADERS ----------
     header_cols = st.columns(len(payment_display.columns) + 1)
     for i, col in enumerate(payment_display.columns):
         header_cols[i].markdown(f"**{col}**")
     header_cols[-1].markdown("**Copy**")
 
-    # ---------- PAYMENT ROWS ----------
     for _, r in payment_display.iterrows():
         row_cols = st.columns(len(payment_display.columns) + 1)
         for i, col in enumerate(payment_display.columns):
             row_cols[i].write(str(r[col]))
-        with row_cols[-1]:
-            copy_button(r[col])
+            with row_cols[-1]:
+                copy_button(r[col])
