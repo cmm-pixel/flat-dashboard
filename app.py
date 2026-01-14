@@ -6,7 +6,6 @@ import streamlit.components.v1 as components
 # ================= LOGIN =================
 def login_page():
     st.title("Login")
-
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
 
@@ -15,34 +14,32 @@ def login_page():
             username == st.secrets["auth"]["username"]
             and password == st.secrets["auth"]["password"]
         ):
-            st.session_state["authenticated"] = True
+            st.session_state.authenticated = True
             st.rerun()
         else:
             st.error("Invalid username or password")
 
-def logout_button():
-    if st.button("Logout"):
-        st.session_state["authenticated"] = False
-        st.rerun()
-
 if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
+    st.session_state.authenticated = False
 
-if not st.session_state["authenticated"]:
+if not st.session_state.authenticated:
     login_page()
     st.stop()
 
+def logout():
+    if st.button("Logout"):
+        st.session_state.authenticated = False
+        st.rerun()
+
 # ================= CONFIG =================
 BASE_PATH = "FORM DETAILS"
-
 ALLOTMENT_FILE = os.path.join(BASE_PATH, "salesforce.xlsx")
-PAYMENT_FILE   = os.path.join(BASE_PATH, "salesforce payment.xlsx")
+PAYMENT_FILE = os.path.join(BASE_PATH, "salesforce payment.xlsx")
 
-FLAT_COLUMN   = "Flat"
-GKC_COLUMN    = "GKC"
+FLAT_COLUMN = "Flat"
+GKC_COLUMN = "GKC"
 STATUS_COLUMN = "Status"
-STATUS_VALUE  = "Cleared"
-
+STATUS_VALUE = "Cleared"
 AADHAR_COLUMN = "Aadhar"
 PREFERRED_PAYMENT_SHEET = "OLD Booking Tracker"
 
@@ -52,8 +49,7 @@ BUILDINGS = [
     "TAPI A"
 ]
 
-HIDE_PAYMENT_COLUMNS = ["Sr. No.", "GKC", "Wing", "Flat No."]
-
+HIDE_PAYMENT_COLUMNS = ["Sr. No.", "Wing", "Flat No."]
 PAYMENT_COLUMN_ORDER = [
     "Name of Applicant",
     "Amount",
@@ -66,20 +62,14 @@ PAYMENT_COLUMN_ORDER = [
 ]
 
 # ================= PAGE =================
-st.set_page_config(page_title="Flat Allotment & Payment Dashboard", layout="wide")
+st.set_page_config(layout="wide", page_title="Flat Dashboard")
 
-top_left, top_right = st.columns([6, 1])
-with top_left:
+left, right = st.columns([6, 1])
+with left:
     st.title("Flat Allotment & Payment Dashboard")
     st.caption("Search flat details and cleared payments instantly")
-with top_right:
-    logout_button()
-
-# ================= FILE CHECK =================
-for f in [ALLOTMENT_FILE, PAYMENT_FILE]:
-    if not os.path.exists(f):
-        st.error(f"Missing file: {f}")
-        st.stop()
+with right:
+    logout()
 
 # ================= HELPERS =================
 def clean_dates(df):
@@ -90,9 +80,6 @@ def clean_dates(df):
 
 def clean_aadhar(s):
     return s.astype(str).str.replace(" ", "", regex=False).str.replace("-", "", regex=False)
-
-def clean_email(s):
-    return s.astype(str).str.strip()
 
 def copy_button(value):
     safe = str(value).replace("`", "").replace("$", "")
@@ -110,47 +97,35 @@ def copy_button(value):
 @st.cache_data
 def load_payment():
     xl = pd.ExcelFile(PAYMENT_FILE)
-
-    sheet = (
-        PREFERRED_PAYMENT_SHEET
-        if PREFERRED_PAYMENT_SHEET in xl.sheet_names
-        else xl.sheet_names[0]
-    )
-
+    sheet = PREFERRED_PAYMENT_SHEET if PREFERRED_PAYMENT_SHEET in xl.sheet_names else xl.sheet_names[0]
     df = xl.parse(sheet)
 
-    # ---------- AUTO-DETECT GKC COLUMN ----------
-    possible_gkc_cols = [
-        "GKC",
-        "GKC No",
-        "GKC Number",
-        "GKC_ID",
-        "Booking No",
-        "Booking Number"
-    ]
-
+    # Detect GKC column safely
     gkc_col = None
     for c in df.columns:
-        if c.strip() in possible_gkc_cols:
+        if c.strip().lower() in ["gkc", "gkc no", "gkc number", "booking no", "booking number"]:
             gkc_col = c
             break
 
     if gkc_col is None:
-        st.error("Payment file does not contain a GKC / Booking column")
-        st.stop()
+        raise ValueError("GKC / Booking column not found in payment file")
 
-    # normalize column name
     df[GKC_COLUMN] = df[gkc_col].astype(str).str.strip()
 
-    # ---------- STATUS COLUMN CHECK ----------
     if STATUS_COLUMN not in df.columns:
-        st.error("Payment file does not contain Status column")
-        st.stop()
+        raise ValueError("Status column not found in payment file")
 
     df[STATUS_COLUMN] = df[STATUS_COLUMN].astype(str).str.strip()
-
     return clean_dates(df)
 
+payment_df = None
+if payment_df is None:
+    try:
+        payment_df = load_payment()
+    except Exception as e:
+        st.error("Failed to load payment data")
+        st.error(str(e))
+        st.stop()
 
 # ================= SEARCH UI =================
 c1, c2, c3 = st.columns([2, 2, 1])
@@ -169,15 +144,11 @@ if search:
 
     allot_df = pd.read_excel(ALLOTMENT_FILE, sheet_name=building)
     allot_df[FLAT_COLUMN] = allot_df[FLAT_COLUMN].astype(str).str.strip()
-    allot_df[GKC_COLUMN]  = allot_df[GKC_COLUMN].astype(str).str.strip()
+    allot_df[GKC_COLUMN] = allot_df[GKC_COLUMN].astype(str).str.strip()
     allot_df = clean_dates(allot_df)
 
     if AADHAR_COLUMN in allot_df.columns:
         allot_df[AADHAR_COLUMN] = clean_aadhar(allot_df[AADHAR_COLUMN])
-
-    for e in ["Email1", "Email2", "Email 1", "Email 2"]:
-        if e in allot_df.columns:
-            allot_df[e] = clean_email(allot_df[e])
 
     result = allot_df[allot_df[FLAT_COLUMN].str.upper() == flat_no.upper()]
 
@@ -195,13 +166,12 @@ if search:
 
     # ================= ALLOTMENT DETAILS =================
     st.subheader("Allotment Details")
-
-    for field, value in row.items():
+    for k, v in row.items():
         c1, c2, c3 = st.columns([2, 4, 1])
-        c1.write(field)
-        c2.write(str(value))
+        c1.write(k)
+        c2.write(str(v))
         with c3:
-            copy_button(value)
+            copy_button(v)
 
     # ================= PAYMENT DETAILS =================
     st.subheader("Payment Details (Cleared)")
@@ -222,23 +192,22 @@ if search:
 
     date_cols = [c for c in payment_display.columns if "date" in c.lower()]
     if date_cols:
-        dc = date_cols[0]
-        payment_display["_d"] = pd.to_datetime(payment_display[dc], errors="coerce")
+        d = date_cols[0]
+        payment_display["_d"] = pd.to_datetime(payment_display[d], errors="coerce")
         payment_display = payment_display.sort_values("_d").drop(columns="_d")
 
     ordered = [c for c in PAYMENT_COLUMN_ORDER if c in payment_display.columns]
     rest = [c for c in payment_display.columns if c not in ordered]
     payment_display = payment_display[ordered + rest].reset_index(drop=True)
 
-    header_cols = st.columns(len(payment_display.columns) + 1)
+    headers = st.columns(len(payment_display.columns) + 1)
     for i, col in enumerate(payment_display.columns):
-        header_cols[i].markdown(f"**{col}**")
-    header_cols[-1].markdown("**Copy**")
+        headers[i].markdown(f"**{col}**")
+    headers[-1].markdown("**Copy**")
 
     for _, r in payment_display.iterrows():
-        row_cols = st.columns(len(payment_display.columns) + 1)
+        cols = st.columns(len(payment_display.columns) + 1)
         for i, col in enumerate(payment_display.columns):
-            row_cols[i].write(str(r[col]))
-            with row_cols[-1]:
+            cols[i].write(str(r[col]))
+            with cols[-1]:
                 copy_button(r[col])
-
