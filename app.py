@@ -72,6 +72,7 @@ def load_payment(all_gkc):
     xl = pd.ExcelFile(PAYMENT_FILE)
     df = clean_dates(xl.parse(xl.sheet_names[0]))
 
+    # Auto-detect booking / GKC column
     booking_col = None
     for c in df.columns:
         if df[c].astype(str).isin(all_gkc).any():
@@ -109,7 +110,7 @@ if search:
 
     row = allot_df[allot_df[FLAT_COLUMN] == flat_no].iloc[0]
 
-    if not row[GKC_COLUMN]:
+    if not row[GKC_COLUMN] or str(row[GKC_COLUMN]).lower() == "nan":
         st.warning("No booking available for this flat")
         st.stop()
 
@@ -118,12 +119,18 @@ if search:
     # ================= ALLOTMENT DETAILS =================
     st.subheader("Allotment Details")
 
-    allot_table = pd.DataFrame(row, columns=["Value"])
+    allot_table = row.to_frame(name="Value")
+
     st.data_editor(
         allot_table,
         disabled=True,
         use_container_width=True
     )
+
+    if st.button("Copy All Allotment Details"):
+        text = "\n".join([f"{k}: {v}" for k, v in allot_table["Value"].items()])
+        st.code(text, language="text")
+        st.caption("Select text above and press Ctrl + C")
 
     # ================= PAYMENT DETAILS =================
     st.subheader("Payment Details (Cleared)")
@@ -147,11 +154,17 @@ if search:
 
     pay = pay.reset_index(drop=True)
 
-    # ✅ COPY-FRIENDLY TABLE
     st.data_editor(
         pay,
         disabled=True,
         use_container_width=True
     )
 
-    st.caption("Tip: Select any cell or row and press Ctrl + C to copy")
+    if st.button("Copy All Payment Details"):
+        text = ""
+        for i, r in pay.iterrows():
+            text += f"\n--- Payment {i + 1} ---\n"
+            for col in pay.columns:
+                text += f"{col}: {r[col]}\n"
+        st.code(text, language="text")
+        st.caption("Select text above and press Ctrl + C")
