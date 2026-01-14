@@ -13,7 +13,7 @@ def login_page():
             st.session_state.authenticated = True
             st.rerun()
         else:
-            st.error("Invalid credentials")
+            st.error("Invalid username or password")
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -44,7 +44,7 @@ BUILDINGS = [
 ]
 
 # ================= PAGE =================
-st.set_page_config(layout="wide", page_title="Flat Dashboard")
+st.set_page_config(page_title="Flat Dashboard", layout="wide")
 
 l, r = st.columns([6, 1])
 with l:
@@ -55,9 +55,9 @@ with r:
 
 # ================= HELPERS =================
 def clean_dates(df):
-    for c in df.columns:
-        if "date" in c.lower():
-            df[c] = pd.to_datetime(df[c], errors="coerce").dt.strftime("%d/%m/%Y")
+    for col in df.columns:
+        if "date" in col.lower():
+            df[col] = pd.to_datetime(df[col], errors="coerce").dt.strftime("%d/%m/%Y")
     return df
 
 @st.cache_data
@@ -70,8 +70,7 @@ def load_allotment(building):
 @st.cache_data
 def load_payment(all_gkc):
     xl = pd.ExcelFile(PAYMENT_FILE)
-    sheet = xl.sheet_names[0]
-    df = clean_dates(xl.parse(sheet))
+    df = clean_dates(xl.parse(xl.sheet_names[0]))
 
     booking_col = None
     for c in df.columns:
@@ -87,7 +86,7 @@ def load_payment(all_gkc):
     df[STATUS_COLUMN] = df[STATUS_COLUMN].astype(str)
     return df
 
-# ================= SEARCH =================
+# ================= SEARCH UI =================
 c1, c2, c3 = st.columns([2, 2, 1])
 with c1:
     building = st.selectbox("Building", BUILDINGS)
@@ -96,9 +95,10 @@ with c2:
 with c3:
     search = st.button("Search", use_container_width=True)
 
+# ================= SEARCH LOGIC =================
 if search:
     if not flat_no.strip():
-        st.error("Enter flat number")
+        st.error("Please enter Flat Number")
         st.stop()
 
     allot_df = load_allotment(building)
@@ -115,17 +115,21 @@ if search:
 
     st.success("Flat details found")
 
-    # ================= ALLOTMENT =================
+    # ================= ALLOTMENT DETAILS =================
     st.subheader("Allotment Details")
-    st.dataframe(
-        pd.DataFrame(row, columns=["Value"]),
+
+    allot_table = pd.DataFrame(row, columns=["Value"])
+    st.data_editor(
+        allot_table,
+        disabled=True,
         use_container_width=True
     )
 
-    # ================= PAYMENT =================
+    # ================= PAYMENT DETAILS =================
     st.subheader("Payment Details (Cleared)")
 
     payment_df = load_payment(allot_df[GKC_COLUMN].unique())
+
     pay = payment_df[
         (payment_df[GKC_COLUMN] == row[GKC_COLUMN]) &
         (payment_df[STATUS_COLUMN].str.contains(STATUS_VALUE, case=False))
@@ -143,18 +147,11 @@ if search:
 
     pay = pay.reset_index(drop=True)
 
-    # ---------- TABLE ----------
-    st.dataframe(pay, use_container_width=True)
+    # ✅ COPY-FRIENDLY TABLE
+    st.data_editor(
+        pay,
+        disabled=True,
+        use_container_width=True
+    )
 
-    # ---------- COPY PER FIELD ----------
-    st.subheader("Copy Payment Details")
-
-    for i, r in pay.iterrows():
-        with st.expander(f"Payment {i+1}"):
-            for col in pay.columns:
-                a, b, c = st.columns([2, 4, 1])
-                a.write(col)
-                b.write(str(r[col]))
-                if c.button("Copy", key=f"{i}_{col}"):
-                    st.session_state["clipboard"] = str(r[col])
-                    st.success(f"{col} copied")
+    st.caption("Tip: Select any cell or row and press Ctrl + C to copy")
