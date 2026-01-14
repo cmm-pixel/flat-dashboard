@@ -5,11 +5,14 @@ import os
 # ================= LOGIN =================
 def login_page():
     st.title("Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        if u == st.secrets["auth"]["username"] and p == st.secrets["auth"]["password"]:
+        if (
+            username == st.secrets["auth"]["username"]
+            and password == st.secrets["auth"]["password"]
+        ):
             st.session_state.authenticated = True
             st.rerun()
         else:
@@ -36,7 +39,6 @@ FLAT_COLUMN = "Flat"
 GKC_COLUMN = "GKC"
 STATUS_COLUMN = "Status"
 STATUS_VALUE = "Cleared"
-
 PREFERRED_PAYMENT_SHEET = "OLD Booking Tracker"
 
 BUILDINGS = [
@@ -46,7 +48,7 @@ BUILDINGS = [
 ]
 
 # ================= PAGE =================
-st.set_page_config(layout="wide", page_title="Flat Dashboard")
+st.set_page_config(page_title="Flat Dashboard", layout="wide")
 
 l, r = st.columns([6, 1])
 with l:
@@ -57,10 +59,15 @@ with r:
 
 # ================= HELPERS =================
 def clean_dates(df):
-    for c in df.columns:
-        if "date" in c.lower():
-            df[c] = pd.to_datetime(df[c], errors="coerce").dt.strftime("%d/%m/%Y")
+    for col in df.columns:
+        if "date" in col.lower():
+            df[col] = pd.to_datetime(df[col], errors="coerce").dt.strftime("%d/%m/%Y")
     return df
+
+def copy_button(label, value, key):
+    if st.button(label, key=key):
+        st.session_state["clipboard"] = str(value)
+        st.success("Copied")
 
 # ================= LOAD DATA =================
 @st.cache_data
@@ -76,7 +83,7 @@ def load_payment(all_gkc):
     sheet = PREFERRED_PAYMENT_SHEET if PREFERRED_PAYMENT_SHEET in xl.sheet_names else xl.sheet_names[0]
     df = clean_dates(xl.parse(sheet))
 
-    # auto detect booking column
+    # auto-detect booking column
     booking_col = None
     for c in df.columns:
         if df[c].astype(str).isin(all_gkc).any():
@@ -84,8 +91,7 @@ def load_payment(all_gkc):
             break
 
     if booking_col is None:
-        st.error("Booking/GKC column not found in payment file")
-        st.stop()
+        raise ValueError("Booking / GKC column not found in payment file")
 
     df[GKC_COLUMN] = df[booking_col].astype(str).str.strip()
     df[STATUS_COLUMN] = df[STATUS_COLUMN].astype(str).str.strip()
@@ -114,21 +120,24 @@ if search:
 
     row = allot_df[allot_df[FLAT_COLUMN] == flat_no].iloc[0]
 
-    if not row[GKC_COLUMN]:
+    if not row[GKC_COLUMN] or str(row[GKC_COLUMN]).lower() == "nan":
         st.warning("No booking available for this flat")
         st.stop()
 
     st.success("Flat details found")
 
-    # ---------- ALLOTMENT ----------
+    # ================= ALLOTMENT DETAILS =================
     st.subheader("Allotment Details")
-    st.dataframe(
-        pd.DataFrame(row).rename(columns={0: "Value"}),
-        use_container_width=True
-    )
 
-    # ---------- PAYMENT ----------
+    for col, val in row.items():
+        a, b, c = st.columns([2, 4, 1])
+        a.write(col)
+        b.write(str(val))
+        copy_button("Copy", val, f"allot_{col}")
+
+    # ================= PAYMENT DETAILS =================
     st.subheader("Payment Details (Cleared)")
+
     payment_df = load_payment(allot_df[GKC_COLUMN].unique())
 
     pay = payment_df[
@@ -148,13 +157,13 @@ if search:
 
     pay = pay.reset_index(drop=True)
 
-    # ---------- TABLE VIEW ----------
-    st.dataframe(pay, use_container_width=True)
-
-    st.markdown("### Copy Payment Row")
-
+    # ===== PER PAYMENT, PER VALUE COPY =====
     for i, r in pay.iterrows():
-        if st.button(f"Copy Row {i+1}"):
-            text = "\n".join([f"{c}: {r[c]}" for c in pay.columns])
-            st.session_state["clipboard"] = text
-            st.success(f"Row {i+1} copied")
+        st.markdown(f"### Payment {i + 1}")
+        st.divider()
+
+        for col in pay.columns:
+            a, b, c = st.columns([2, 4, 1])
+            a.write(col)
+            b.write(str(r[col]))
+            copy_button("Copy", r[col], f"pay_{i}_{col}")
