@@ -110,15 +110,47 @@ def copy_button(value):
 @st.cache_data
 def load_payment():
     xl = pd.ExcelFile(PAYMENT_FILE)
-    sheet = PREFERRED_PAYMENT_SHEET if PREFERRED_PAYMENT_SHEET in xl.sheet_names else xl.sheet_names[0]
+
+    sheet = (
+        PREFERRED_PAYMENT_SHEET
+        if PREFERRED_PAYMENT_SHEET in xl.sheet_names
+        else xl.sheet_names[0]
+    )
+
     df = xl.parse(sheet)
 
-    df[GKC_COLUMN] = df[GKC_COLUMN].astype(str).str.strip()
+    # ---------- AUTO-DETECT GKC COLUMN ----------
+    possible_gkc_cols = [
+        "GKC",
+        "GKC No",
+        "GKC Number",
+        "GKC_ID",
+        "Booking No",
+        "Booking Number"
+    ]
+
+    gkc_col = None
+    for c in df.columns:
+        if c.strip() in possible_gkc_cols:
+            gkc_col = c
+            break
+
+    if gkc_col is None:
+        st.error("Payment file does not contain a GKC / Booking column")
+        st.stop()
+
+    # normalize column name
+    df[GKC_COLUMN] = df[gkc_col].astype(str).str.strip()
+
+    # ---------- STATUS COLUMN CHECK ----------
+    if STATUS_COLUMN not in df.columns:
+        st.error("Payment file does not contain Status column")
+        st.stop()
+
     df[STATUS_COLUMN] = df[STATUS_COLUMN].astype(str).str.strip()
 
     return clean_dates(df)
 
-payment_df = load_payment()
 
 # ================= SEARCH UI =================
 c1, c2, c3 = st.columns([2, 2, 1])
@@ -209,3 +241,4 @@ if search:
             row_cols[i].write(str(r[col]))
             with row_cols[-1]:
                 copy_button(r[col])
+
