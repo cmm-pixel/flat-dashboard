@@ -13,7 +13,7 @@ def login_page():
             st.session_state.authenticated = True
             st.rerun()
         else:
-            st.error("Invalid username or password")
+            st.error("Invalid credentials")
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -44,7 +44,7 @@ BUILDINGS = [
 ]
 
 # ================= PAGE =================
-st.set_page_config(page_title="Flat Dashboard", layout="wide")
+st.set_page_config(layout="wide", page_title="Flat Dashboard")
 
 l, r = st.columns([6, 1])
 with l:
@@ -55,9 +55,9 @@ with r:
 
 # ================= HELPERS =================
 def clean_dates(df):
-    for col in df.columns:
-        if "date" in col.lower():
-            df[col] = pd.to_datetime(df[col], errors="coerce").dt.strftime("%d/%m/%Y")
+    for c in df.columns:
+        if "date" in c.lower():
+            df[c] = pd.to_datetime(df[c], errors="coerce").dt.strftime("%d/%m/%Y")
     return df
 
 @st.cache_data
@@ -72,7 +72,6 @@ def load_payment(all_gkc):
     xl = pd.ExcelFile(PAYMENT_FILE)
     df = clean_dates(xl.parse(xl.sheet_names[0]))
 
-    # Auto-detect booking / GKC column
     booking_col = None
     for c in df.columns:
         if df[c].astype(str).isin(all_gkc).any():
@@ -80,14 +79,14 @@ def load_payment(all_gkc):
             break
 
     if booking_col is None:
-        st.error("Booking / GKC column not found in payment file")
+        st.error("Booking / GKC column not found")
         st.stop()
 
     df[GKC_COLUMN] = df[booking_col].astype(str)
     df[STATUS_COLUMN] = df[STATUS_COLUMN].astype(str)
     return df
 
-# ================= SEARCH UI =================
+# ================= SEARCH =================
 c1, c2, c3 = st.columns([2, 2, 1])
 with c1:
     building = st.selectbox("Building", BUILDINGS)
@@ -96,10 +95,9 @@ with c2:
 with c3:
     search = st.button("Search", use_container_width=True)
 
-# ================= SEARCH LOGIC =================
 if search:
     if not flat_no.strip():
-        st.error("Please enter Flat Number")
+        st.error("Enter flat number")
         st.stop()
 
     allot_df = load_allotment(building)
@@ -110,31 +108,19 @@ if search:
 
     row = allot_df[allot_df[FLAT_COLUMN] == flat_no].iloc[0]
 
-    if not row[GKC_COLUMN] or str(row[GKC_COLUMN]).lower() == "nan":
+    if not row[GKC_COLUMN]:
         st.warning("No booking available for this flat")
         st.stop()
 
     st.success("Flat details found")
 
-    # ================= ALLOTMENT DETAILS =================
+    # ================= ALLOTMENT =================
     st.subheader("Allotment Details")
-
     allot_table = row.to_frame(name="Value")
+    st.dataframe(allot_table, use_container_width=True)
 
-    st.data_editor(
-        allot_table,
-        disabled=True,
-        use_container_width=True
-    )
-
-    if st.button("Copy All Allotment Details"):
-        text = "\n".join([f"{k}: {v}" for k, v in allot_table["Value"].items()])
-        st.code(text, language="text")
-        st.caption("Select text above and press Ctrl + C")
-
-    # ================= PAYMENT DETAILS =================
+    # ================= PAYMENT =================
     st.subheader("Payment Details (Cleared)")
-
     payment_df = load_payment(allot_df[GKC_COLUMN].unique())
 
     pay = payment_df[
@@ -143,10 +129,9 @@ if search:
     ]
 
     if pay.empty:
-        st.info("No cleared payments found")
+        st.info("No cleared payments")
         st.stop()
 
-    # Sort by date
     date_cols = [c for c in pay.columns if "date" in c.lower()]
     if date_cols:
         pay["_d"] = pd.to_datetime(pay[date_cols[0]], errors="coerce")
@@ -154,17 +139,15 @@ if search:
 
     pay = pay.reset_index(drop=True)
 
-    st.data_editor(
-        pay,
-        disabled=True,
-        use_container_width=True
-    )
+    st.dataframe(pay, use_container_width=True)
 
-    if st.button("Copy All Payment Details"):
+    # ================= ONE CLICK COPY =================
+    if st.button("Copy All Payment Data"):
         text = ""
         for i, r in pay.iterrows():
-            text += f"\n--- Payment {i + 1} ---\n"
+            text += f"\nPayment {i+1}\n"
             for col in pay.columns:
                 text += f"{col}: {r[col]}\n"
+
         st.code(text, language="text")
-        st.caption("Select text above and press Ctrl + C")
+        st.success("Copied. Press Ctrl + C once.")
